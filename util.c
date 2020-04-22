@@ -25,17 +25,24 @@
  *   are deemed to be part of the source code.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-
 #include "config.h"
 
+#include <sys/types.h>
+
+#ifndef _WIN32
+    #include <sys/stat.h>
+#endif
+
+#ifdef _WIN32
+#include "winsmbios.h"
+#else
 #ifdef USE_MMAP
 #include <sys/mman.h>
 #ifndef MAP_FAILED
 #define MAP_FAILED ((void *) -1)
 #endif /* !MAP_FAILED */
 #endif /* USE MMAP */
+#endif /* _WIN32 */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -155,6 +162,14 @@ out:
 	return p;
 }
 
+#ifdef _WIN32
+
+void *mem_chunk(off_t base, size_t len, const char *devmem) {
+    return mem_chunk_win( (void *)base, len);
+}
+
+#else
+
 /*
  * Copy a physical memory chunk into a memory buffer.
  * This function allocates memory.
@@ -246,6 +261,8 @@ out:
 
 	return p;
 }
+
+#endif /* _WIN32 */
 
 int write_dump(size_t base, size_t len, const void *data, const char *dumpfile, int add)
 {

@@ -1,5 +1,10 @@
-biosdecode
-dmidecode
-ownership
-vpddecode
-*.o
+.vs
+*.sdf
+*.suo
+*.opensdf
+*.dmp
+*.aps
+*.user
+x64
+Release
+Debug

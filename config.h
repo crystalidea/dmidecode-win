@@ -17,8 +17,17 @@
 #endif
 
 /* Use mmap or not */
-#ifndef __BEOS__
+#if !defined __BEOS__ && !defined _WIN32
 #define USE_MMAP
+#endif
+
+#if defined(_WIN32)
+#pragma warning(disable: 4996)
+#endif
+
+#if defined(_WIN64)
+#define _OFF_T_DEFINED
+typedef unsigned long long off_t;
 #endif
 
 /* Use memory alignment workaround or not */
