@@ -31,7 +31,7 @@ typedef unsigned long long off_t;
 #endif
 
 /* Use memory alignment workaround or not */
-#ifdef __ia64__
+#if defined(__ia64__) || defined(__LP64__)
 #define ALIGNMENT_WORKAROUND
 #endif
 
