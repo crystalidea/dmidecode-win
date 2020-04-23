@@ -29,10 +29,8 @@ CFLAGS += -O2
 # Pass linker flags here
 LDFLAGS =
 
-# Flags for Apple macOS
 ifeq ($(shell uname -s),Darwin)
-	CFLAGS += -Wno-constant-logical-operand
-	LDFLAGS += -framework CoreServices -framework IOKit
+    LDFLAGS += -framework CoreServices -framework IOKit
 endif
 
 DESTDIR =

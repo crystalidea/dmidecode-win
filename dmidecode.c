@@ -87,7 +87,7 @@ static const char *bad_index = "<BAD INDEX>";
 
 #define FLAG_NO_FILE_OFFSET     (1 << 0)
 #define FLAG_STOP_AT_EOT        (1 << 1)
-#define FLAG_FROM_API           (1 << 2)
+#define FLAG_READ_FROM_API      (1 << 2)
 
 #define SYS_FIRMWARE_DIR "/sys/firmware/dmi/tables"
 #define SYS_ENTRY_FILE SYS_FIRMWARE_DIR "/smbios_entry_point"
@@ -4670,7 +4670,16 @@ static void dmi_table_decode(u8 *buf, u32 len, u16 num, u16 ver, u32 flags)
 		while ((unsigned long)(next - buf + 1) < len
 		    && (next[0] != 0 || next[1] != 0))
 			next++;
+
+#if defined(__APPLE__)
+        /* some apple devices have multiple pairs of padded zeroes */
+        while ((unsigned long)(next - buf + 1) < len
+            && (next[0] == 0 && next[1] == 0))
+            next += 2;
+#else // default
 		next += 2;
+#endif
+
 		if (display)
 		{
 			if ((unsigned long)(next - buf) <= len)
@@ -4718,7 +4727,7 @@ static void dmi_table_decode(u8 *buf, u32 len, u16 num, u16 ver, u32 flags)
 static void dmi_table(off_t base, u32 len, u16 num, u32 ver, const char *devmem,
 		      u32 flags)
 {
-	u8 *buf;
+    u8 *buf = NULL;
 
 	if (ver > SUPPORTED_SMBIOS_VER && !(opt.flags & FLAG_QUIET))
 	{
@@ -4736,7 +4745,7 @@ static void dmi_table(off_t base, u32 len, u16 num, u32 ver, const char *devmem,
 			if (num)
 				printf("%u structures occupying %u bytes.\n",
 				       num, len);
-            if (!(flags & FLAG_FROM_API) && !(opt.flags & FLAG_FROM_DUMP))
+            if (!(flags & FLAG_READ_FROM_API) && !(opt.flags & FLAG_FROM_DUMP))
 				printf("Table at 0x%08llX.\n",
 				       (unsigned long long)base);
 		}
@@ -4788,18 +4797,18 @@ static void dmi_table(off_t base, u32 len, u16 num, u32 ver, const char *devmem,
         
     }
 
-#ifdef __APPLE__
-    // read tables returned by API call
-    if (flags & FLAG_FROM_API)
+#ifdef USE_API_CALLS
+    // read tables from API call
+    if (flags & FLAG_READ_FROM_API)
     {
-        mach_port_t masterPort;
-        CFMutableDictionaryRef properties = NULL;
-        io_service_t service = MACH_PORT_NULL;
-        CFDataRef dataRef;
+#ifdef __APPLE__
+        mach_port_t				masterPort;
+        CFMutableDictionaryRef	properties = NULL;
+        io_service_t			service = MACH_PORT_NULL;
+        CFDataRef				dataRef;
 
         IOMasterPort(MACH_PORT_NULL, &masterPort);
-        service = IOServiceGetMatchingService(masterPort,
-            IOServiceMatching("AppleSMBIOS"));
+        service = IOServiceGetMatchingService(masterPort, IOServiceMatching("AppleSMBIOS"));
         if (service == MACH_PORT_NULL)
         {
             fprintf(stderr, "AppleSMBIOS service is unreachable, sorry.\n");
@@ -4807,13 +4816,16 @@ static void dmi_table(off_t base, u32 len, u16 num, u32 ver, const char *devmem,
         }
 
         if (kIOReturnSuccess != IORegistryEntryCreateCFProperties(service,
-            &properties, kCFAllocatorDefault, kNilOptions))
+            &properties,
+            kCFAllocatorDefault,
+            kNilOptions))
         {
             fprintf(stderr, "No data in AppleSMBIOS IOService, sorry.\n");
             return;
         }
 
-        if (!CFDictionaryGetValueIfPresent(properties, CFSTR("SMBIOS"),
+        if (!CFDictionaryGetValueIfPresent(properties,
+            CFSTR("SMBIOS"),
             (const void **)&dataRef))
         {
             fprintf(stderr, "SMBIOS property data is unreachable, sorry.\n");
@@ -4832,16 +4844,20 @@ static void dmi_table(off_t base, u32 len, u16 num, u32 ver, const char *devmem,
         if (NULL != dataRef)
             CFRelease(dataRef);
 
-        /*
-         * This CFRelease throws 'Segmentation fault: 11' since macOS 10.12, if
-         * the compiled binary is not signed with an Apple developer profile.
-         */
-        if (NULL != properties)
-            CFRelease(properties);
+        // This CFRelease throws 'Segmentation fault: 11' on OS X 10.12, except
+        // when run as the child of a signed binary, like lldb.
+        //
+        // See: https://github.com/cavaliercoder/dmidecode-osx/issues/3
+        //
+        //if (NULL != properties)
+        //	CFRelease(properties);
 
         IOObjectRelease(service);
+#else
+#error "No API functions known for this platform"
+#endif
     }
-#endif // __APPLE__
+#endif
 
 	if (buf == NULL)
 	{
@@ -5155,16 +5171,16 @@ int main(int argc, char * const argv[])
 	}
 
 #if defined(__APPLE__)
-    mach_port_t masterPort;
-    io_service_t service = MACH_PORT_NULL;
-    CFDataRef dataRef;
+
+    mach_port_t		masterPort;
+    io_service_t	service = MACH_PORT_NULL;
+    CFDataRef		dataRef;
 
     if (!(opt.flags & FLAG_QUIET))
         printf("Getting SMBIOS data from Apple SMBIOS service.\n");
 
     IOMasterPort(MACH_PORT_NULL, &masterPort);
-    service = IOServiceGetMatchingService(masterPort,
-        IOServiceMatching("AppleSMBIOS"));
+    service = IOServiceGetMatchingService(masterPort, IOServiceMatching("AppleSMBIOS"));
     if (service == MACH_PORT_NULL)
     {
         fprintf(stderr, "AppleSMBIOS service is unreachable, sorry.");
@@ -5173,7 +5189,9 @@ int main(int argc, char * const argv[])
     }
 
     dataRef = (CFDataRef)IORegistryEntryCreateCFProperty(service,
-        CFSTR("SMBIOS-EPS"), kCFAllocatorDefault, kNilOptions);
+        CFSTR("SMBIOS-EPS"),
+        kCFAllocatorDefault,
+        kNilOptions);
 
     if (dataRef == NULL)
     {
@@ -5195,11 +5213,11 @@ int main(int argc, char * const argv[])
         CFRelease(dataRef);
     IOObjectRelease(service);
 
-    if (smbios_decode(buf, NULL, FLAG_FROM_API))
+    if (smbios_decode(buf, NULL, FLAG_READ_FROM_API))
     {
         found++;
         goto done;
-    }
+}
 
 #endif // __APPLE__
 
