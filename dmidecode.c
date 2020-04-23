@@ -4766,6 +4766,7 @@ static void dmi_table(off_t base, u32 len, u16 num, u32 ver, const char *devmem,
 	}
     else
     {
+#ifdef _WIN32
         /*
          * if devmem is NULL then base has the SMBIOS Table address
          * already allocated and not the physical memory address that
@@ -4777,13 +4778,14 @@ static void dmi_table(off_t base, u32 len, u16 num, u32 ver, const char *devmem,
          * see more on winsmbios.h and winsmbios.c
          */
 
-        if (devmem == NULL)
-        {
+        if (!devmem)
             buf = (u8 *)base;
-        }
-        else {
+        else 
             buf = mem_chunk(base, len, devmem);
-        }
+#else
+        buf = mem_chunk(base, len, devmem);
+#endif
+        
     }
 
 #ifdef __APPLE__
