@@ -113,7 +113,7 @@ static u8 *parse_opt_type(u8 *p, const char *arg)
 		char *next;
 
 		val = strtoul(arg, &next, 0);
-		if (next == arg)
+		if (next == arg || (*next != '\0' && *next != ',' && *next != ' '))
 		{
 			fprintf(stderr, "Invalid type keyword: %s\n", arg);
 			print_opt_type_list();
@@ -151,11 +151,14 @@ static const struct string_keyword opt_string_keyword[] = {
 	{ "bios-vendor", 0, 0x04 },
 	{ "bios-version", 0, 0x05 },
 	{ "bios-release-date", 0, 0x08 },
+	{ "bios-revision", 0, 0x15 },		/* 0x14 and 0x15 */
+	{ "firmware-revision", 0, 0x17 },	/* 0x16 and 0x17 */
 	{ "system-manufacturer", 1, 0x04 },
 	{ "system-product-name", 1, 0x05 },
 	{ "system-version", 1, 0x06 },
 	{ "system-serial-number", 1, 0x07 },
 	{ "system-uuid", 1, 0x08 },             /* dmi_system_uuid() */
+	{ "system-sku-number", 1, 0x19 },
 	{ "system-family", 1, 0x1a },
 	{ "baseboard-manufacturer", 2, 0x04 },
 	{ "baseboard-product-name", 2, 0x05 },
@@ -228,7 +231,7 @@ static int parse_opt_oem_string(const char *arg)
 		goto done;
 
 	val = strtoul(arg, &next, 10);
-	if (next == arg || val == 0x00 || val > 0xff)
+	if (next == arg  || *next != '\0' || val == 0x00 || val > 0xff)
 	{
 		fprintf(stderr, "Invalid OEM string number: %s\n", arg);
 		return -1;
@@ -240,6 +243,19 @@ done:
 	return 0;
 }
 
+static u32 parse_opt_handle(const char *arg)
+{
+	u32 val;
+	char *next;
+
+	val = strtoul(arg, &next, 0);
+	if (next == arg || *next != '\0' || val > 0xffff)
+	{
+		fprintf(stderr, "Invalid handle number: %s\n", arg);
+		return ~0;
+	}
+	return val;
+}
 
 /*
  * Command line options handling
@@ -249,16 +265,18 @@ done:
 int parse_command_line(int argc, char * const argv[])
 {
 	int option;
-	const char *optstring = "d:hqs:t:uV";
+	const char *optstring = "d:hqs:t:uH:V";
 	struct option longopts[] = {
 		{ "dev-mem", required_argument, NULL, 'd' },
 		{ "help", no_argument, NULL, 'h' },
 		{ "quiet", no_argument, NULL, 'q' },
+		{ "no-quirks", no_argument, NULL, 'Q' },
 		{ "string", required_argument, NULL, 's' },
 		{ "type", required_argument, NULL, 't' },
 		{ "dump", no_argument, NULL, 'u' },
 		{ "dump-bin", required_argument, NULL, 'B' },
 		{ "from-dump", required_argument, NULL, 'F' },
+		{ "handle", required_argument, NULL, 'H' },
 		{ "oem-string", required_argument, NULL, 'O' },
 		{ "no-sysfs", no_argument, NULL, 'S' },
 		{ "version", no_argument, NULL, 'V' },
@@ -285,6 +303,9 @@ int parse_command_line(int argc, char * const argv[])
 			case 'q':
 				opt.flags |= FLAG_QUIET;
 				break;
+			case 'Q':
+				opt.flags |= FLAG_NO_QUIRKS;
+				break;
 			case 's':
 				if (parse_opt_string(optarg) < 0)
 					return -1;
@@ -298,6 +319,11 @@ int parse_command_line(int argc, char * const argv[])
 			case 't':
 				opt.type = parse_opt_type(opt.type, optarg);
 				if (opt.type == NULL)
+					return -1;
+				break;
+			case 'H':
+				opt.handle = parse_opt_handle(optarg);
+				if (opt.handle  == ~0U)
 					return -1;
 				break;
 			case 'u':
@@ -326,9 +352,9 @@ int parse_command_line(int argc, char * const argv[])
 
 	/* Check for mutually exclusive output format options */
 	if ((opt.string != NULL) + (opt.type != NULL)
-	  + !!(opt.flags & FLAG_DUMP_BIN) > 1)
+	  + !!(opt.flags & FLAG_DUMP_BIN) + (opt.handle != ~0U) > 1)
 	{
-		fprintf(stderr, "Options --string, --type and --dump-bin are mutually exclusive\n");
+		fprintf(stderr, "Options --string, --type, --handle and --dump-bin are mutually exclusive\n");
 		return -1;
 	}
 
@@ -349,8 +375,10 @@ void print_help(void)
 		" -d, --dev-mem FILE     Read memory from device FILE (default: " DEFAULT_MEM_DEV ")\n"
 		" -h, --help             Display this help text and exit\n"
 		" -q, --quiet            Less verbose output\n"
+		"     --no-quirks        Decode everything without quirks\n"
 		" -s, --string KEYWORD   Only display the value of the given DMI string\n"
 		" -t, --type TYPE        Only display the entries of given type\n"
+		" -H, --handle HANDLE    Only display the entry of given handle\n"
 		" -u, --dump             Do not decode the entries\n"
 		"     --dump-bin FILE    Dump the DMI data to a binary file\n"
 		"     --from-dump FILE   Read the DMI data from a binary file\n"

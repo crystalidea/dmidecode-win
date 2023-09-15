@@ -2,7 +2,7 @@
  * Common "util" functions
  * This file is part of the dmidecode project.
  *
- *   Copyright (C) 2002-2017 Jean Delvare <jdelvare@suse.de>
+ *   Copyright (C) 2002-2018 Jean Delvare <jdelvare@suse.de>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License as published by
@@ -25,24 +25,17 @@
  *   are deemed to be part of the source code.
  */
 
+#include <sys/types.h>
+#include <sys/stat.h>
+
 #include "config.h"
 
-#include <sys/types.h>
-
-#ifndef _WIN32
-    #include <sys/stat.h>
-#endif
-
-#ifdef _WIN32
-#include "winsmbios.h"
-#else
 #ifdef USE_MMAP
 #include <sys/mman.h>
 #ifndef MAP_FAILED
 #define MAP_FAILED ((void *) -1)
 #endif /* !MAP_FAILED */
 #endif /* USE MMAP */
-#endif /* _WIN32 */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,6 +46,10 @@
 
 #include "types.h"
 #include "util.h"
+
+#ifdef _WIN32
+#include "winsmbios.h"
+#endif
 
 static int myread(int fd, u8 *buf, size_t count, const char *prefix)
 {
@@ -66,7 +63,6 @@ static int myread(int fd, u8 *buf, size_t count, const char *prefix)
 		{
 			if (errno != EINTR)
 			{
-				close(fd);
 				perror(prefix);
 				return -1;
 			}
@@ -77,7 +73,6 @@ static int myread(int fd, u8 *buf, size_t count, const char *prefix)
 
 	if (r2 != count)
 	{
-		close(fd);
 		fprintf(stderr, "%s: Unexpected end of file\n", prefix);
 		return -1;
 	}
@@ -97,19 +92,17 @@ int checksum(const u8 *buf, size_t len)
 
 /*
  * Reads all of file from given offset, up to max_len bytes.
- * A buffer of max_len bytes is allocated by this function, and
+ * A buffer of at most max_len bytes is allocated by this function, and
  * needs to be freed by the caller.
  * This provides a similar usage model to mem_chunk()
  *
- * Returns pointer to buffer of max_len bytes, or NULL on error, and
+ * Returns a pointer to the allocated buffer, or NULL on error, and
  * sets max_len to the length actually read.
- *
  */
 void *read_file(off_t base, size_t *max_len, const char *filename)
 {
+	struct stat statbuf;
 	int fd;
-	size_t r2 = 0;
-	ssize_t r;
 	u8 *p;
 
 	/*
@@ -123,12 +116,20 @@ void *read_file(off_t base, size_t *max_len, const char *filename)
 		return NULL;
 	}
 
-	if (lseek(fd, base, SEEK_SET) == -1)
+	/*
+	 * Check file size, don't allocate more than can be read.
+	 */
+	if (fstat(fd, &statbuf) == 0)
 	{
-		fprintf(stderr, "%s: ", filename);
-		perror("lseek");
-		p = NULL;
-		goto out;
+		if (base >= statbuf.st_size)
+		{
+			fprintf(stderr, "%s: Can't read data beyond EOF\n",
+				filename);
+			p = NULL;
+			goto out;
+		}
+		if (*max_len > (size_t)statbuf.st_size - base)
+			*max_len = statbuf.st_size - base;
 	}
 
 	if ((p = malloc(*max_len)) == NULL)
@@ -137,37 +138,45 @@ void *read_file(off_t base, size_t *max_len, const char *filename)
 		goto out;
 	}
 
-	do
+	if (lseek(fd, base, SEEK_SET) == -1)
 	{
-		r = read(fd, p + r2, *max_len - r2);
-		if (r == -1)
-		{
-			if (errno != EINTR)
-			{
-				perror(filename);
-				free(p);
-				p = NULL;
-				goto out;
-			}
-		}
-		else
-			r2 += r;
+		fprintf(stderr, "%s: ", filename);
+		perror("lseek");
+		goto err_free;
 	}
-	while (r != 0);
 
-	*max_len = r2;
+	if (myread(fd, p, *max_len, filename) == 0)
+		goto out;
+
+err_free:
+	free(p);
+	p = NULL;
+
 out:
-	close(fd);
+	if (close(fd) == -1)
+		perror(filename);
 
 	return p;
 }
 
-#ifdef _WIN32
+#ifdef USE_MMAP
+static void safe_memcpy(void *dest, const void *src, size_t n)
+{
+#ifdef USE_SLOW_MEMCPY
+	size_t i;
 
-void *mem_chunk(off_t base, size_t len, const char *devmem) {
-    return mem_chunk_win( (void *)base, len);
+	for (i = 0; i < n; i++)
+		*((u8 *)dest + i) = *((const u8 *)src + i);
+#else
+	memcpy(dest, src, n);
+#endif /* USE_SLOW_MEMCPY */
 }
+#endif /* USE_MMAP */
 
+#ifdef _WIN32
+void* mem_chunk(off_t base, size_t len, const char* devmem) {
+    return mem_chunk_win((void*)base, len);
+}
 #else
 
 /*
@@ -176,18 +185,26 @@ void *mem_chunk(off_t base, size_t len, const char *devmem) {
  */
 void *mem_chunk(off_t base, size_t len, const char *devmem)
 {
-	void *p;
+	struct stat statbuf;
+	void *p = NULL;
 	int fd;
 #ifdef USE_MMAP
-	struct stat statbuf;
 	off_t mmoffset;
 	void *mmp;
 #endif
 
-	if ((fd = open(devmem, O_RDONLY)) == -1)
+	/*
+	 * Safety check: if running as root, devmem is expected to be a
+	 * character device file.
+	 */
+	if ((fd = open(devmem, O_RDONLY)) == -1
+	 || fstat(fd, &statbuf) == -1
+	 || (geteuid() == 0 && !S_ISCHR(statbuf.st_mode)))
 	{
-		perror(devmem);
-		return NULL;
+		fprintf(stderr, "Can't read memory from %s\n", devmem);
+		if (fd == -1)
+			return NULL;
+		goto out;
 	}
 
 	if ((p = malloc(len)) == NULL)
@@ -197,13 +214,6 @@ void *mem_chunk(off_t base, size_t len, const char *devmem)
 	}
 
 #ifdef USE_MMAP
-	if (fstat(fd, &statbuf) == -1)
-	{
-		fprintf(stderr, "%s: ", devmem);
-		perror("stat");
-		goto err_free;
-	}
-
 	/*
 	 * mmap() will fail with SIGBUS if trying to map beyond the end of
 	 * the file.
@@ -229,7 +239,7 @@ void *mem_chunk(off_t base, size_t len, const char *devmem)
 	if (mmp == MAP_FAILED)
 		goto try_read;
 
-	memcpy(p, (u8 *)mmp + mmoffset, len);
+	safe_memcpy(p, (u8 *)mmp + mmoffset, len);
 
 	if (munmap(mmp, mmoffset + len) == -1)
 	{
@@ -263,46 +273,6 @@ out:
 }
 
 #endif /* _WIN32 */
-
-int write_dump(size_t base, size_t len, const void *data, const char *dumpfile, int add)
-{
-	FILE *f;
-
-	f = fopen(dumpfile, add ? "r+b" : "wb");
-	if (!f)
-	{
-		fprintf(stderr, "%s: ", dumpfile);
-		perror("fopen");
-		return -1;
-	}
-
-	if (fseek(f, base, SEEK_SET) != 0)
-	{
-		fprintf(stderr, "%s: ", dumpfile);
-		perror("fseek");
-		goto err_close;
-	}
-
-	if (fwrite(data, len, 1, f) != 1)
-	{
-		fprintf(stderr, "%s: ", dumpfile);
-		perror("fwrite");
-		goto err_close;
-	}
-
-	if (fclose(f))
-	{
-		fprintf(stderr, "%s: ", dumpfile);
-		perror("fclose");
-		return -1;
-	}
-
-	return 0;
-
-err_close:
-	fclose(f);
-	return -1;
-}
 
 /* Returns end - start + 1, assuming start < end */
 u64 u64_range(u64 start, u64 end)

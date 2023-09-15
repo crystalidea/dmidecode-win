@@ -22,6 +22,7 @@
     <ClCompile Include="dmidecode.c" />
     <ClCompile Include="dmioem.c" />
     <ClCompile Include="dmiopt.c" />
+    <ClCompile Include="dmioutput.c" />
     <ClCompile Include="util.c" />
     <ClCompile Include="windows\getopt.c" />
     <ClCompile Include="windows\winsmbios.c" />
@@ -31,6 +32,7 @@
     <ClInclude Include="dmidecode.h" />
     <ClInclude Include="dmioem.h" />
     <ClInclude Include="dmiopt.h" />
+    <ClInclude Include="dmioutput.h" />
     <ClInclude Include="util.h" />
     <ClInclude Include="windows\getopt.h" />
     <ClInclude Include="windows\winsmbios.h" />

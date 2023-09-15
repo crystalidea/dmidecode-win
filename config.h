@@ -17,27 +17,31 @@
 #endif
 
 /* Use mmap or not */
-#if !defined __BEOS__ && !defined _WIN32
+#ifndef __BEOS__
 #define USE_MMAP
 #endif
 
 /* Use memory alignment workaround or not */
-#if defined(__ia64__) || defined(__LP64__)
+#ifdef __ia64__
 #define ALIGNMENT_WORKAROUND
 #endif
 
-/* Use API calls to get SMBIOS data */
-#if defined(__APPLE__) // TODO: || defined(__WIN32)
-#define USE_API_CALLS
+/* Avoid unaligned memcpy on /dev/mem */
+#ifdef __aarch64__
+#define USE_SLOW_MEMCPY
 #endif
 
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 #pragma warning(disable: 4996)
 #endif
 
+#if defined(_WIN32)
+#undef USE_MMAP
+#define __i386__
+#endif
+
 #if defined(_WIN64)
-#define _OFF_T_DEFINED
-typedef unsigned long long off_t;
+#define __x86_64__
 #endif
 
 #endif

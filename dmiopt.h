@@ -35,6 +35,7 @@ struct opt
 	u8 *type;
 	const struct string_keyword *string;
 	char *dumpfile;
+	u32 handle;
 };
 extern struct opt opt;
 
@@ -45,6 +46,7 @@ extern struct opt opt;
 #define FLAG_DUMP_BIN           (1 << 4)
 #define FLAG_FROM_DUMP          (1 << 5)
 #define FLAG_NO_SYSFS           (1 << 6)
+#define FLAG_NO_QUIRKS          (1 << 7)
 
 int parse_command_line(int argc, char * const argv[]);
 void print_help(void);
