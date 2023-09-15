@@ -250,4 +250,35 @@ PRawSMBIOSData get_raw_smbios_table(void){
     }
 
     return buf;
-}            
+}
+
+RawSMBIOSData* get_raw_smbios_table_from_file(const char* file)
+{
+    void* buffer = NULL;
+    FILE* fp = NULL;
+    long int fileSize = 0;
+    
+    fopen_s(&fp, file, "rb");
+
+    if (fp)
+    {
+        fseek(fp, 0L, SEEK_END);
+        fileSize = ftell(fp);
+        fseek(fp, 0L, SEEK_SET);
+
+        buffer = malloc(fileSize);
+
+        if (buffer)
+        {
+            if (fread(buffer, 1, fileSize, fp) != fileSize)
+            {
+                free(buffer);
+                buffer = NULL;
+            }
+        }
+
+        fclose(fp);
+    }
+
+    return buffer;
+}

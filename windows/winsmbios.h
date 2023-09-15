@@ -21,6 +21,7 @@ typedef struct _RawSMBIOSData{
 
 int get_windows_platform(void);
 RawSMBIOSData *get_raw_smbios_table(void);
+RawSMBIOSData* get_raw_smbios_table_from_file(const char *file);
 int count_smbios_structures(const u8 *buff, u32 len);
 void *mem_chunk_win(void* base, u32 len);
 

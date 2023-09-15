@@ -6070,6 +6070,9 @@ int main(int argc, char* const argv[])
 		if (!(opt.flags & FLAG_QUIET))
 			pr_info("Reading SMBIOS/DMI data from file %s.",
 				opt.dumpfile);
+
+#ifndef _WIN32
+
 		if ((buf = mem_chunk(0, 0x20, opt.dumpfile)) == NULL)
 		{
 			ret = 1;
@@ -6091,7 +6094,13 @@ int main(int argc, char* const argv[])
 			if (legacy_decode(buf, opt.dumpfile, 0))
 				found++;
 		}
+
 		goto done;
+#else
+
+		// see below
+
+#endif
 	}
 
 	/*
@@ -6180,7 +6189,16 @@ memory_scan:
 		}
 
 		//gets the raw smbios table
-		smb = get_raw_smbios_table();
+
+		if (opt.flags & FLAG_FROM_DUMP)
+		{
+			smb = get_raw_smbios_table_from_file(opt.dumpfile);
+
+			opt.flags &= ~FLAG_FROM_DUMP; // remove FLAG_FROM_DUMP
+		}
+		else
+			smb = get_raw_smbios_table();
+
 		num_structures = count_smbios_structures(&smb->SMBIOSTableData[0], smb->Length);
 
 		if (!(opt.flags & FLAG_QUIET)) {
